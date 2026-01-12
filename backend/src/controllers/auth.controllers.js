@@ -1,0 +1,156 @@
+import Database from 'better-sqlite3'
+import bcrypt from 'bcrypt'
+import db from "../db/db.js"
+import {findUserByEmail, checkPassword} from "../utils/utils.controllers.js"
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv'
+import {setup2fa, verify2fa} from "./2fa.controllers.js"
+
+dotenv.config()
+
+const SALT_ROUNDS = 10;
+const MIN_PASSWORD_LENGTH = 1;
+
+const	blacklist = [];
+blacklist.push("admin", "root", "support", "system", "moderator", "staff")
+
+export async function createDatabase(){
+	const query = `
+			CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			email TEXT NOT NULL UNIQUE,
+			password TEXT NOT NULL,
+			google_secret TEXT
+		);
+
+			CREATE TABLE IF NOT EXISTS users_stats (
+			id INTEGER NOT NULL,
+			games_played INTEGER NOT NULL,
+			games_wins INTEGER NOT NULL,
+			FOREIGN KEY (id) REFERENCES users(id) ON DELETE CASCADE
+		);
+
+	`;
+	db.exec(query);
+}
+
+export async function registerUser(request, reply){
+	const {username, email, password} = request.body ?? {};
+	const re = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+
+
+	if (!username || !email || !password)
+		return reply.status(400).send({error: "Missing Field in Controllers"});
+	const _username = username.trim();
+	const _email = email.trim();
+	if (!_username || !_email)
+		return reply.status(400).send({error: "Non valid credentials"});
+	
+	if (blacklist.some(word => _username.includes(word)))
+		return reply.status(400).send({error: "This _username is strickly forbidden"});
+	if (password.length < MIN_PASSWORD_LENGTH)
+		return reply.status(400).send({error: "Bad _password length"});
+	if (re.test(_email) == false)
+		return reply.status(400).send({error: "Invalid Email: ", _email});
+	try {
+		const hashedPass = await bcrypt.hash(password, SALT_ROUNDS);
+		const stmt  = db.prepare(
+			"INSERT INTO users (username, email, password) VALUES (?, ?, ?)");
+
+		const info = stmt.run(_username, _email, hashedPass);
+
+		const userId = info.lastInsertRowid;
+		db.prepare("INSERT INTO users_stats (id, games_played, games_wins) VALUES (?, 0, 0)").run(userId);
+		const _2fa = await setup2fa(_username);
+		return reply.send({success: true, message: "User successfuly created ! You can now login.", _2fa: _2fa});
+	}catch (err) {
+		if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || err.code == "SQLITE_CONSTRAINT"){
+			return reply.status(400).send({error: "Failed to create the users"})
+		}
+		console.log(err);
+		return reply.status(401).send({error: "Internal Error"})
+	}
+}
+
+export async function verifyUser(request, reply){
+	try {
+		const { username, password, token} = request.body ?? {};
+
+		if (!username || !password || !token)
+			return reply.status(400).send({ error: "Missing Field" });
+
+		const stmt = db.prepare("SELECT id, username, email, password FROM users WHERE username = ?");
+		const user = stmt.get(username);
+
+		if (!user)
+			return reply.status(401).send({ error: "Invalid Credentials" });
+
+		const good = await checkPassword(user, password);
+		if (!good)
+			return reply.status(401).send({ error: "Invalid Credentials" });
+		
+		const ret = await verify2fa(username, token);
+		if (ret !== 1)
+			return reply.status(400).send({ error: "Invalid 2FA code" });
+
+		const jtoken = await jwt.sign(
+			{ id: user.id, email: user.email, username: user.username },
+			process.env.JWT_SECRET,
+			{ expiresIn: "1000h" }
+		);
+		const obj = {
+			success: true,
+			message: "User successfully logged in!",
+			jtoken,
+		}
+		reply.send(obj)
+		return reply;
+	}catch(e){
+		console.log(e);
+		return reply.code(401).send({ error: "Internal server error" });
+	}
+}
+
+export async function deleteUser(request, reply)
+{
+	const {username, email, password} = request.body;
+	
+	if (!username || !email || !password)
+		return response.status(400).send({error: "Missing Field"});
+
+	const stmt = db.prepare("SELECT id, username, email, password FROM users WHERE email = ?")
+	const user = stmt.get(email);
+
+	if (!user)
+		return reply.status(401).send({error: "Invalid Credentials"})
+	if (!checkPassword(user, password))
+		return reply.status(401).send({error: "Invalid Credentials"})
+	stmt = db.prepare("DELETE FROM users WHERE email = ?");
+	stmt.run(email)
+
+	return {success: true, message: "You are no longer register on this website !"};
+}
+
+export async function changePassword(request, reply) {
+	const { email, oldPassword, newPassword } = request.body;
+
+	if (!email || !oldPassword || !newPassword)
+		return reply.status(400).send({ error: "Missing Field" });
+
+	const stmt = db.prepare("SELECT * FROM users WHERE email = ?");
+	const user = stmt.get(email);
+
+	if (!user)
+		return reply.status(404).send({ error: "User not found" });
+
+	const match = await bcrypt.compare(oldPassword, user.password);
+	if (!match)
+		return reply.status(401).send({ error: "Invalid old password" });
+
+	const hashedNew = await bcrypt.hash(newPassword, SALT_ROUNDS);
+	const updateStmt = db.prepare("UPDATE users SET password = ? WHERE email = ?");
+	updateStmt.run(hashedNew, email);
+
+	return { success: true, message: "Password successfully changed" };
+}

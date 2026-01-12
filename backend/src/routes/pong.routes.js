@@ -1,0 +1,102 @@
+import {getGameData, sendInput, createGame, startGame, joinGame, getOwner, createTournament, joinTournament, startTournament, getTournamentData, getTournamentOwner, getGamePlayers} from '../controllers/pong.controllers.js'
+import {authenticateToken} from '../middlewares/auth.middleware.js'
+
+async function pong_routes (fastify, options){
+	fastify.get('/pong/get-data', 
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		getGameData(request, reply);
+	})
+
+	fastify.post('/pong/post-input',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		sendInput(request, reply);
+	})
+
+	fastify.post('/pong/create-game', 
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		createGame(request, reply);
+	})
+
+	fastify.post('/pong/start-game',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) =>{
+		startGame(request, reply);
+	})
+
+	fastify.post('/pong/join-game',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		joinGame(request, reply);
+	})
+
+	fastify.get('/pong/get-owner',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		getOwner(request, reply);
+	})
+
+	fastify.post('/pong/tournament/create',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		await createTournament(request, reply);
+	})
+
+	fastify.post('/pong/tournament/join',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		joinTournament(request, reply);
+	})
+
+	fastify.post('/pong/tournament/start',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		startTournament(request, reply);
+	})
+
+	fastify.get('/pong/tournament/get-data',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		getTournamentData(request, reply);
+	})
+
+	fastify.get('/pong/tournament/get-owner',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		getTournamentOwner(request, reply);
+	})
+
+	fastify.get('/pong/get-players',
+		{
+			preHandler: authenticateToken
+		},
+		async (request, reply) => {
+		getGamePlayers(request, reply);
+	})
+}
+
+export default pong_routes

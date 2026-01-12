@@ -1,0 +1,41 @@
+services:
+  backend:
+    container_name: backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    volumes:
+      - ./backend/src:/app/src
+      - /app/src/pong
+      - ./data/sqlite:/app/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  frontend:
+    container_name: frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - app-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  sqlite_data:
+
+networks:
+  app-network:
+    driver: bridge
+
